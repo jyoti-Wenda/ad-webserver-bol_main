@@ -389,6 +389,87 @@ def removeSimilarItems(final_bbox, final_preds, final_words):
     return _bb, _pp, _ww
 
 
+
+def transform_dataset(df, merge_labels):
+  df_temp = df.iloc[merge_labels]
+  df_temp.reset_index(drop = True, inplace = True)
+
+  text = ' '.join(df_temp['scr_column'])
+  bbox = mergeBoxes(df_temp)
+
+  retain_index = merge_labels[0]
+  df['scr_column'].iloc[retain_index] = text
+  df['bbox_column'].iloc[retain_index] = bbox
+
+  df.drop(index=merge_labels[1:], inplace = True)
+  df.reset_index(drop = True, inplace = True)
+  return df
+
+def mergeLabelsExtensive(df_grouped):
+  i = 0
+  while i < df_grouped.shape[0]:
+    merge_labels = [i]
+    label = df_grouped['preds_column'].iloc[i]
+    box1 = df_grouped['bbox_column'].iloc[i]
+
+    for j in range(i+1, df_grouped.shape[0]):
+      box2 = df_grouped['bbox_column'].iloc[j]
+      if label == df_grouped['preds_column'].iloc[j] and dist_height(box1[3], box2[3])<20: # which are in the vicinity of 20 pixels.
+        merge_labels.append(j)
+    df_grouped = transform_dataset(df_grouped, merge_labels)
+    i = i+1
+  return df_grouped
+
+
+# needs labels_repeat of type list, that contain the labels in table.
+def multilabelsHandle(preds, words, bboxes): #, labels_repeat):
+    det_dict = {'bbox_column': bboxes, 'preds_column': preds, 'scr_column': words}
+    df = pd.DataFrame(det_dict)
+    # Since 0 is assigned to 'others' and these values are not so important. We delete these values.
+    df = df[df.preds_column != 0]
+    df.reset_index(drop=True, inplace=True)
+    for i in range(df.shape[0]):
+        df['preds_column'].iloc[i] = id2label.get(df['preds_column'].iloc[i])
+    print(df['preds_column'].unique())
+    df_grouped = df.copy() #stores the index of relevant labels.
+    df_grouped = df_grouped[df_grouped['preds_column'].isin(['container_id','container_type','package_quantity', 'gross_weight','seal_number'])]
+    df_grouped.reset_index(drop=True, inplace=True)
+    df_grouped = mergeLabelsExtensive(df_grouped)
+
+    # breaking df for each unique label
+    unique_values = df_grouped['preds_column'].unique()
+    df_list = []
+    df_len_list = []
+
+    for value in unique_values:
+        new_df = df_grouped[df_grouped['preds_column'] == value].copy()
+        new_df.reset_index(drop = True, inplace = True)
+        df_list.append(new_df)
+        # print(tabulate(new_df, headers = new_df.columns, tablefmt = 'psql'))
+        df_len_list.append(new_df.shape[0])
+
+    final_result = []
+    if len(set(df_len_list)) == 1:
+      for df in df_list:
+        final_result.append(df.groupby('preds_column')['scr_column'].apply(list).to_dict())
+        print('final_result: ', final_result)
+
+      final_result = pd.DataFrame(final_result).transpose()
+      final_result = final_result.apply(lambda x: pd.Series(x.dropna().values[0]), axis=1)
+      return final_result.T
+
+    else:
+      #handling cases where any one of the labels is/are missing
+      for df in df_list:
+        final_result.append(df.groupby('preds_column')['scr_column'].apply(list).to_dict())
+        print('final_result: ', final_result)
+
+      final_result = pd.DataFrame(final_result).transpose()
+      final_result = final_result.apply(lambda x: pd.Series(x.dropna().values[0]), axis=1)
+      return final_result.T
+
+
+
 def createDataframe(labels, words):
     print('labels', labels)
     detail_dict = {}
@@ -450,7 +531,7 @@ def process_form(preds, words, bboxes):
             key_value_pairs.append({'labels': col, 'values': val})
     df_main = pd.DataFrame(key_value_pairs)
     df_details = pd.DataFrame()
-
+    df_details = multilabelsHandle(preds, words, bboxes)
     logger.info('process_form end')
     return [df_main, df_details]
 
@@ -468,7 +549,7 @@ def process_PDF(filePath, ocr):
         page = doc.load_page(i)     # number of page
         zoom = 2                    # zoom factor
         mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix = mat, dpi = 200)
+        pix = page.get_pixmap(matrix = mat, dpi = 300)
         if filePath[-4:] == ".pdf":
             imgOutput = filePath.replace(".pdf", "_{}.png".format(i))
         elif filePath[-4:] == ".PDF":
@@ -488,7 +569,7 @@ def process_PDF(filePath, ocr):
             print(angle)
             out = remove_borders(skewed_image)
             cv2.imwrite(imgOutput, out)
-            out.save(imgOutput)
+        #out.save(imgOutput)
         # each image goes through the model
         pageResult = process_page(imgOutput, ocr)
         # result is saved in a dict-like shape to be returned

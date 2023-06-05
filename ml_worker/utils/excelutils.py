@@ -17,6 +17,14 @@ def format_doc(doc_type, doc_name, extracted_data, pathfile):
         return
 
 
+'''
+# Remove all non-numeric characters from the text
+'''
+def extract_numbers(text):
+    result = re.sub(r'\D', '', text)
+    print('Gross weight:', result)
+    return result
+
 def prune_text(text):
     chars = "\\`*_\{\}[]\(\)\|/<>#-\'\"+!$,\."
     for c in chars:
@@ -28,6 +36,11 @@ def prune_text(text):
 def cleanup_text(text):
     result = re.sub(r'[^a-zA-Z0-9]+', '', text)
     print('result',result)
+    return result
+
+def extract_gross_weight(text):
+    result = re.sub(r'[^0-9.,]+', '', text)
+    print('result', result)
     return result
 
 
@@ -163,13 +176,13 @@ def format_bol(doc_name, extracted_data):
                         value = remove_leading_trailing_special_characters(element_item['value'])
                         container_type.append(value)
                     if element_item['key'] == 'package_quantity' and element_item['value'] != "":
-                        value = remove_leading_trailing_special_characters(element_item['value'])
+                        value = extract_numbers(element_item['value'])
                         package_quantity.append(value)
                     if element_item['key'] == 'gross_weight' and element_item['value'] != "":
-                        value = extract_numeric_values(element_item['value'])
+                        value = extract_gross_weight(element_item['value'])
                         gross_weight.append(value)
                     if element_item['key'] == 'seal_number' and element_item['value'] != "":
-                        value = extract_numeric_values(element_item['value'])
+                        value = extract_numbers(element_item['value'])
                         seal_number.append(value)
 
     xls_filepath = os.path.join(UPLOAD_FOLDER, reference_number + ".xlsx")
